@@ -1,0 +1,148 @@
+-- 1. What is the total amount each customer spent at the restaurant?
+
+SELECT customer_id,SUM(price) AS total_amount
+FROM sales JOIN menu 
+ON sales.product_id=menu.product_id
+GROUP BY customer_id
+
+
+-- 2. How many days has each customer visited the restaurant?
+
+SELECT customer_id,COUNT(order_date)
+FROM sales  
+GROUP BY customer_id;
+
+
+-- 3. What was the first item from the menu purchased by each customer?
+
+SELECT customer_id,order_date,product_name
+FROM sales JOIN menu
+ON sales.product_id=menu.product_id
+WHERE order_date IN ( SELECT MIN(order_date)
+						FROM sales)
+
+
+-- 4. What is the most purchased item on the menu and how many times was it purchased by all customers?
+
+SELECT TOP 1 product_name,COUNT(product_name) AS COUNT_PRODUCT
+FROM sales JOIN menu
+ON sales.product_id=menu.product_id 
+GROUP BY product_name
+ORDER BY COUNT_PRODUCT DESC
+
+
+
+-- 5. Which item was the most popular for each customer?
+
+WITH cte 
+     AS (SELECT sub.customer_id AS costumer,
+	 sub.product_name AS product,
+	 max_total=MAX(sub.total)
+	                         OVER( partition BY sub.customer_id),
+							 rn = Row_number() 
+							 OVER( 
+							 partition BY sub.customer_id
+							 ORDER BY sub.customer_id  ASC) 
+        FROM (
+              SELECT  customer_id,product_name,COUNT(product_name) AS total
+                FROM sales JOIN menu
+               ON sales.product_id=menu.product_id 
+              GROUP BY customer_id,product_name
+		     ) sub)
+SELECT costumer,
+	   product, 
+       max_total 
+FROM   cte 
+WHERE  rn = 1 
+
+
+-- 6. Which item was purchased first by the customer after they became a member?
+
+WITH cte 
+     AS (SELECT sub.customer AS costumerid,
+	 sub.productname AS product,
+	 min_orderdate=MIN(sub.orderdate)
+	                         OVER( partition BY customer),
+							 rn = Row_number() 
+							 OVER( 
+							 partition BY customer
+							 ORDER BY customer  ASC) 
+        FROM (
+              SELECT sales.customer_id AS customer,sales.order_date AS orderdate,menu.product_name AS productname
+				FROM sales
+				JOIN menu
+				 ON sales.product_id=menu.product_id
+				INNER JOIN  members
+				 ON sales.customer_id=members.customer_id AND sales.order_date>=members.join_date
+		     ) sub)
+SELECT costumerid,
+	   min_orderdate, 
+       product 
+FROM   cte 
+WHERE  rn = 1 
+
+
+-- 7. Which item was purchased just before the customer became a member?
+
+WITH cte 
+     AS (SELECT sub.customer AS costumerid,
+	 sub.productname AS product,
+	 min_orderdate=MAX(sub.orderdate)
+	                         OVER( partition BY customer),
+							 rn = Row_number() 
+							 OVER( 
+							 partition BY customer
+							 ORDER BY customer ASC) 
+        FROM (
+              SELECT sales.customer_id AS customer,sales.order_date AS orderdate,menu.product_name AS productname
+				FROM sales
+				JOIN menu
+				 ON sales.product_id=menu.product_id
+				INNER JOIN  members
+				 ON sales.customer_id=members.customer_id AND sales.order_date < members.join_date
+		     ) sub)
+SELECT costumerid,
+	   min_orderdate, 
+       product 
+FROM   cte 
+WHERE  rn = 1 
+
+
+-- 8. What is the total items and amount spent for each member before they became a member?
+
+ SELECT sales.customer_id AS customer,COUNT(menu.product_id) AS total_items ,SUM(menu.price) AS total_amount 
+				FROM sales
+				JOIN menu
+				 ON sales.product_id=menu.product_id
+				INNER JOIN  members
+				 ON sales.customer_id=members.customer_id AND sales.order_date < members.join_date
+				 GROUP BY sales.customer_id
+
+
+-- 9.  If each $1 spent equates to 10 points and sushi has a 2x points multiplier - how many points would each customer have?
+
+SELECT sub.customer,SUM(sub.rank_customer ) AS points
+FROM 
+    ( SELECT sales.customer_id AS customer,
+        CASE WHEN menu.product_id IN ('2','3') THEN SUM(menu.price*10)
+            ELSE SUM(menu.price*20)END AS rank_customer
+				FROM sales
+				JOIN menu
+				ON sales.product_id=menu.product_id
+				GROUP BY sales.customer_id, menu.product_id )sub
+GROUP BY sub.customer
+
+
+-- 10. In the first week after a customer joins the program (including their join date) they earn 2x points on all items, not just sushi 
+------ how many points do customer A and B have at the end of January?
+ SELECT sub.customer,SUM(sub.price*20 ) AS points
+ FROM (
+              SELECT sales.customer_id AS customer, sales.order_date AS orderdate, menu.product_name AS productname, menu.price AS price
+				FROM sales
+				JOIN menu
+				 ON sales.product_id=menu.product_id
+				INNER JOIN  members
+				 ON sales.customer_id=members.customer_id AND sales.order_date >= members.join_date AND sales.order_date <='2021-01-31'
+
+		     ) sub
+GROUP BY sub.customer
